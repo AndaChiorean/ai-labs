@@ -5,6 +5,9 @@ from OpenGL.GLU import *
 import numpy as np
 import math
 import random
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 WINDOW_W = 1000
 WINDOW_H = 750
@@ -207,6 +210,68 @@ def draw_particles(particles):
         gluDeleteQuadric(quad)
         glPopMatrix()
 
+def draw_entropy_chart(surface, entropy_history, max_entropy, chart_rect, font):
+    pygame.draw.rect(surface, (20, 20, 30, 200), chart_rect)
+    pygame.draw.rect(surface, (100, 100, 100), chart_rect, 1)
+
+    if len(entropy_history) < 2:
+        return
+
+    draw_text_2d(surface, "Entropy over time", (chart_rect.x + 5, chart_rect.y - 16), font, (200, 200, 200))
+
+    # max entropy reference line
+    if max_entropy > 0:
+        max_y = chart_rect.y + 5
+        min_y = chart_rect.y + chart_rect.h - 5
+        ref_y = int(min_y - (max_entropy / max_entropy) * (min_y - max_y))
+        pygame.draw.line(surface, (100, 100, 100), (chart_rect.x, ref_y), (chart_rect.x + chart_rect.w, ref_y), 1)
+        draw_text_2d(surface, f"max={max_entropy:.2f}", (chart_rect.x + chart_rect.w + 5, ref_y - 7), font, (150, 150, 150))
+
+    # plot the entropy curve
+    n = len(entropy_history)
+    visible = min(n, 300)
+    data = entropy_history[-visible:]
+
+    y_min = 0
+    y_max = max_entropy * 1.05 if max_entropy > 0 else 1.0
+    x_start = chart_rect.x + 2
+    x_end = chart_rect.x + chart_rect.w - 2
+    y_top = chart_rect.y + 5
+    y_bottom = chart_rect.y + chart_rect.h - 5
+
+    points = []
+    for i, val in enumerate(data):
+        x = x_start + (i / max(len(data) - 1, 1)) * (x_end - x_start)
+        y = y_bottom - ((val - y_min) / (y_max - y_min)) * (y_bottom - y_top)
+        points.append((int(x), int(y)))
+
+    if len(points) >= 2:
+        pygame.draw.lines(surface, (50, 200, 50), False, points, 2)
+
+    # current value label
+    current = entropy_history[-1]
+    ratio = current / max_entropy * 100 if max_entropy > 0 else 0
+    draw_text_2d(surface, f"H={current:.3f} ({ratio:.1f}%)", (chart_rect.x + 5, chart_rect.y + chart_rect.h + 3), font, (50, 200, 50))
+
+
+def save_entropy_plot(entropy_history, max_entropy):
+    if len(entropy_history) < 10:
+        return
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(entropy_history, color='green', linewidth=0.8, label='Shannon Entropy')
+    ax.axhline(y=max_entropy, color='red', linestyle='--', linewidth=1, label=f'Maximum Entropy ({max_entropy:.4f})')
+    ax.set_xlabel('Time Step (frame)')
+    ax.set_ylabel('Shannon Entropy (bits)')
+    ax.set_title('Entropy Evolution Over Time')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_ylim(0, max_entropy * 1.15)
+    plt.tight_layout()
+    plt.savefig('entropy_evolution.png', dpi=150)
+    plt.close()
+    print(f"Saved entropy evolution plot ({len(entropy_history)} frames) to entropy_evolution.png")
+
+
 def draw_text_2d(surface, text, pos, font, color=(255, 255, 255)):
     text_surface = font.render(text, True, color)
     surface.blit(text_surface, pos)
@@ -275,6 +340,9 @@ def main():
     mouse_down = False
     last_mouse = (0, 0)
 
+    entropy_history = []
+    chart_rect = pygame.Rect(WINDOW_W - 320, WINDOW_H - 170, 300, 100)
+
     clock = pygame.time.Clock()
     running = True
 
@@ -308,6 +376,7 @@ def main():
         new_count = int(slider_particles.val)
         if new_count != len(particles):
             particles = init_particles(new_count, slider_speed.val)
+            entropy_history.clear()
         speed_mult = slider_speed.val
 
         update_physics(particles, dt, speed_mult)
@@ -315,6 +384,7 @@ def main():
         shannon_e = compute_shannon_entropy(particles, GRID_N)
         boltzmann_e = compute_boltzmann_entropy(particles, GRID_N)
         max_shannon = math.log2(GRID_N ** 3)
+        entropy_history.append(shannon_e)
 
         # 3D rendering
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -348,6 +418,9 @@ def main():
         draw_text_2d(overlay, "Low entropy", (WINDOW_W - 160, 10), font, (100, 100, 255))
         draw_text_2d(overlay, "High entropy", (WINDOW_W - 160, 30), font, (255, 100, 100))
 
+        # entropy evolution chart
+        draw_entropy_chart(overlay, entropy_history, max_shannon, chart_rect, font)
+
         # blit 2D overlay onto OpenGL
         tex_data = pygame.image.tostring(overlay, "RGBA", True)
         glMatrixMode(GL_PROJECTION)
@@ -375,6 +448,7 @@ def main():
 
         pygame.display.flip()
 
+    save_entropy_plot(entropy_history, max_shannon)
     pygame.quit()
 
 
