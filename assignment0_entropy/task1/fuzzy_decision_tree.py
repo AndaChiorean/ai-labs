@@ -2,6 +2,8 @@ import csv
 import math
 import random
 from collections import Counter
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def load_csv(filename):
@@ -336,6 +338,113 @@ def main():
     print("\nKey difference: Fuzzy DT uses membership degrees (partial belonging)")
     print("while Crisp DT uses hard thresholds. Fuzzy DT handles boundary cases")
     print("more gracefully since a sample can partially belong to multiple categories.")
+
+    # --- Feature Importance Analysis ---
+    print("\n" + "=" * 50)
+    print("FEATURE IMPORTANCE ANALYSIS")
+    print("=" * 50)
+
+    # fuzzy: compute IG for each attribute+term pair
+    weights_all = [1.0] * len(train_data)
+    print("\nFuzzy DT - Information Gain per attribute/term:")
+    fuzzy_importance = {}
+    for attr in attributes:
+        fuzzy_importance[attr] = 0
+        for term in MEMBERSHIP_PARAMS[attr]:
+            ig = fuzzy_information_gain(train_data, attr, term, target, weights_all)
+            print(f"  {attr:>15} [{term:<10}]: IG = {ig:.4f}")
+            fuzzy_importance[attr] = max(fuzzy_importance[attr], ig)
+
+    print("\n  Summary (max IG per attribute):")
+    for attr in sorted(fuzzy_importance, key=fuzzy_importance.get, reverse=True):
+        print(f"    {attr:<15}: {fuzzy_importance[attr]:.4f}")
+
+    # crisp: compute best split IG for each attribute
+    print("\nCrisp DT - Best split IG per attribute:")
+    crisp_importance = {}
+    for attr in attributes:
+        gain, threshold = find_best_split(train_data, attr, target)
+        crisp_importance[attr] = gain
+        print(f"  {attr:<15}: IG = {gain:.4f} (threshold = {threshold:.1f})")
+
+    # extract split order from trees
+    print("\n--- Split order (which feature is used first) ---")
+    def get_split_order_fuzzy(tree, order=None):
+        if order is None:
+            order = []
+        if isinstance(tree, str):
+            return order
+        order.append(f"{tree['attribute']} [{tree['term']}]")
+        get_split_order_fuzzy(tree["yes"], order)
+        get_split_order_fuzzy(tree["no"], order)
+        return order
+
+    def get_split_order_crisp(tree, order=None):
+        if order is None:
+            order = []
+        if isinstance(tree, str):
+            return order
+        order.append(f"{tree['attribute']} (<= {tree['threshold']:.1f})")
+        get_split_order_crisp(tree["left"], order)
+        get_split_order_crisp(tree["right"], order)
+        return order
+
+    fuzzy_order = get_split_order_fuzzy(fuzzy_tree)
+    crisp_order = get_split_order_crisp(crisp_tree)
+    print(f"  Fuzzy DT splits: {' -> '.join(fuzzy_order[:5])}")
+    print(f"  Crisp DT splits: {' -> '.join(crisp_order[:5])}")
+
+    # --- plot feature importance comparison ---
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    sorted_attrs = sorted(attributes, key=lambda a: fuzzy_importance[a], reverse=True)
+    x = np.arange(len(sorted_attrs))
+    fuzzy_vals = [fuzzy_importance[a] for a in sorted_attrs]
+    crisp_vals = [crisp_importance[a] for a in sorted_attrs]
+
+    width = 0.35
+    ax1.bar(x - width/2, fuzzy_vals, width, label='Fuzzy DT', color='#4dabf7', alpha=0.8)
+    ax1.bar(x + width/2, crisp_vals, width, label='Crisp DT', color='#ff6b6b', alpha=0.8)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(sorted_attrs, rotation=30, ha='right')
+    ax1.set_ylabel('Information Gain')
+    ax1.set_title('Feature Importance: Fuzzy vs Crisp DT')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3, axis='y')
+
+    # plot membership functions
+    for i, attr in enumerate(sorted_attrs):
+        vals = sorted(set(row[attr] for row in data))
+        x_range = np.linspace(min(vals) - 2, max(vals) + 2, 200)
+
+        for term, (a, b, c) in MEMBERSHIP_PARAMS[attr].items():
+            y = [triangular(x, a, b, c) for x in x_range]
+            ax2.plot(x_range, y, label=f"{attr}: {term}" if i == 0 or attr == sorted_attrs[0] else None)
+
+    ax2.set_xlabel('Feature Value')
+    ax2.set_ylabel('Membership Degree')
+    ax2.set_title(f'Membership Functions ({sorted_attrs[0]})')
+    # only show membership functions for the most important feature
+    ax2.clear()
+    best_attr = sorted_attrs[0]
+    vals = sorted(set(row[best_attr] for row in data))
+    x_range = np.linspace(min(vals) - 5, max(vals) + 5, 300)
+    colors = ['#4dabf7', '#51cf66', '#ff6b6b']
+    for j, (term, (a, b, c)) in enumerate(MEMBERSHIP_PARAMS[best_attr].items()):
+        y = [triangular(x, a, b, c) for x in x_range]
+        ax2.plot(x_range, y, label=term, color=colors[j % len(colors)], linewidth=2)
+        ax2.fill_between(x_range, y, alpha=0.15, color=colors[j % len(colors)])
+    ax2.set_xlabel(best_attr)
+    ax2.set_ylabel('Membership Degree')
+    ax2.set_title(f'Triangular Membership Functions: {best_attr}')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    ax2.set_ylim(0, 1.1)
+
+    plt.tight_layout()
+    plt.savefig('feature_importance.png', dpi=150)
+    plt.close()
+    print("\nSaved feature importance plot to feature_importance.png")
 
 
 if __name__ == "__main__":
