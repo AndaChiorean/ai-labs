@@ -3,6 +3,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 from tsp_utils import load_berlin52, tour_distance, nearest_neighbor_tour
+from hill_climbing import hill_climbing_2opt
 from tabu_search import tabu_search
 from simulated_annealing import simulated_annealing
 from genetic_algorithm import genetic_algorithm
@@ -14,6 +15,7 @@ NUM_RUNS = 10
 
 def run_benchmark(coords):
     results = {
+        "Hill Climbing": {"distances": [], "times": [], "histories": []},
         "Tabu Search": {"distances": [], "times": [], "histories": []},
         "Simulated Annealing": {"distances": [], "times": [], "histories": []},
         "Genetic Algorithm": {"distances": [], "times": [], "histories": []},
@@ -27,6 +29,14 @@ def run_benchmark(coords):
 
     for run in range(NUM_RUNS):
         seed = run * 17 + 3
+
+        # Hill Climbing (2-opt baseline)
+        start = time.time()
+        _, dist, history = hill_climbing_2opt(coords, max_iterations=50000, seed=seed)
+        elapsed = time.time() - start
+        results["Hill Climbing"]["distances"].append(dist)
+        results["Hill Climbing"]["times"].append(elapsed)
+        results["Hill Climbing"]["histories"].append(history)
 
         # Tabu Search
         start = time.time()
@@ -78,7 +88,7 @@ def print_results_table(results):
 
 def plot_convergence(results):
     fig, ax = plt.subplots(figsize=(12, 7))
-    colors = {'Tabu Search': 'red', 'Simulated Annealing': 'blue', 'Genetic Algorithm': 'green'}
+    colors = {'Hill Climbing': 'gray', 'Tabu Search': 'red', 'Simulated Annealing': 'blue', 'Genetic Algorithm': 'green'}
 
     for name, data in results.items():
         # use the best run's history
@@ -103,7 +113,7 @@ def plot_boxplot(results):
     labels = list(results.keys())
 
     bp = ax.boxplot(data, labels=labels, patch_artist=True)
-    colors = ['#ff6b6b', '#4dabf7', '#51cf66']
+    colors = ['#adb5bd', '#ff6b6b', '#4dabf7', '#51cf66']
     for patch, color in zip(bp['boxes'], colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.6)
@@ -123,7 +133,7 @@ def plot_bar_chart(results):
     names = list(results.keys())
     avgs = [np.mean(results[n]["distances"]) for n in names]
     stds = [np.std(results[n]["distances"]) for n in names]
-    colors = ['#ff6b6b', '#4dabf7', '#51cf66']
+    colors = ['#adb5bd', '#ff6b6b', '#4dabf7', '#51cf66']
 
     bars = ax.bar(names, avgs, yerr=stds, capsize=10, color=colors, alpha=0.7, edgecolor='black')
     ax.axhline(y=OPTIMAL, color='black', linestyle='--', label=f'Optimal ({OPTIMAL})', alpha=0.5)
@@ -163,6 +173,13 @@ def main():
     print("ANALYSIS")
     print("=" * 80)
     print("""
+Hill Climbing (2-opt):
+  - Simple baseline: only accepts improving moves
+  - Gets stuck in local optima quickly
+  - Included to show WHY metaheuristics are necessary
+  - Even with a good initial solution (nearest neighbor), it
+    plateaus far from the optimal
+
 Tabu Search:
   - Deterministic neighborhood exploration (all 2-opt swaps each iteration)
   - Uses memory (tabu list) to avoid revisiting recent solutions
